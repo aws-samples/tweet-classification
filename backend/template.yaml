@@ -1,0 +1,220 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  Labels:
+    Type: String
+    Default: "security, machine learning, database, storage, compute"
+
+Mappings:
+  # Hugging Face Inference Containers
+  # https://github.com/aws/deep-learning-containers/blob/master/available_images.md
+  ContainerImageByRegion:
+    us-east-1:
+      Image: 763104351884.dkr.ecr.us-east-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    us-east-2:
+      Image: 763104351884.dkr.ecr.us-east-2.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    us-west-1:
+      Image: 763104351884.dkr.ecr.us-west-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    us-west-2:
+      Image: 763104351884.dkr.ecr.us-west-2.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    af-south-1:
+      Image: 626614931356.dkr.ecr.af-south-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-east-1:
+      Image: 871362719292.dkr.ecr.ap-east-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-south-1:
+      Image: 763104351884.dkr.ecr.ap-south-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-northeast-3:
+      Image: 364406365360.dkr.ecr.ap-northeast-3.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-northeast-2:
+      Image: 763104351884.dkr.ecr.ap-northeast-2.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-southeast-1:
+      Image: 763104351884.dkr.ecr.ap-southeast-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-southeast-2 :
+      Image: 763104351884.dkr.ecr.ap-southeast-2.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ap-northeast-1:
+      Image: 763104351884.dkr.ecr.ap-northeast-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    ca-central-1:
+      Image: 763104351884.dkr.ecr.ca-central-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-central-1:
+      Image: 763104351884.dkr.ecr.eu-central-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-west-1:
+      Image: 763104351884.dkr.ecr.eu-west-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-west-2:
+      Image: 763104351884.dkr.ecr.eu-west-2.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-south-1:
+      Image: 692866216735.dkr.ecr.eu-south-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-west-3:
+      Image: 763104351884.dkr.ecr.eu-west-3.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    eu-north-1:
+      Image: 763104351884.dkr.ecr.eu-north-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    me-south-1:
+      Image: 217643126080.dkr.ecr.me-south-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    sa-east-1:
+      Image: 763104351884.dkr.ecr.sa-east-1.amazonaws.com/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    cn-north-1:
+      Image: 727897471807.dkr.ecr.cn-north-1.amazonaws.com.cn/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+    cn-northwest-1:
+      Image: 727897471807.dkr.ecr.cn-northwest-1.amazonaws.com.cn/huggingface-pytorch-inference:1.7-transformers4.6-cpu-py36-ubuntu18.04
+
+Resources:
+  ##############
+  # Amazon SNS #
+  ##############
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      KmsMasterKeyId: alias/aws/sns
+  AlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Sid: AllowPublishThroughSSLOnly
+            Action: sns:Publish
+            Effect: Deny
+            Principal: '*'
+            Resource:
+              - !Ref AlertTopic
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+      Topics:
+        - !Ref AlertTopic
+
+  ##############
+  # SQS queues #
+  ##############
+  TweetsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      VisibilityTimeout: 200
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TweetsDeadLetterQueue.Arn
+        maxReceiveCount: 5
+  TweetsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+  TweetsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TweetsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: sqs:SendMessage
+            Resource: !GetAtt TweetsQueue.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  TweetsDeadLetterQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TweetsDeadLetterQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: sqs:SendMessage
+            Resource: !GetAtt TweetsDeadLetterQueue.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  #################################################################################
+  # SQS queue Lambda function consumer (runs the ML model to classify the Tweets) #
+  #################################################################################
+  QueueConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.9
+      Timeout: 180
+      Handler: lambda.handler
+      CodeUri: lambdas/queue_consumer/
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt TweetsQueue.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertTopic.TopicName
+        # Sagemaker policy (required for invoking sagemaker endpoint)
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: "sagemaker:InvokeEndpoint"
+              Resource: !Ref SageMakerEndpoint
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref AlertTopic
+          ENDPOINT_NAME: !GetAtt SageMakerEndpoint.EndpointName
+          LABELS: !Ref Labels
+          LOG_LEVEL: info
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TweetsQueue.Arn
+            BatchSize: 3
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  ###################
+  # NLP Model setup #
+  ###################
+  SageMakerModelRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+  SageMakerModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ExecutionRoleArn: !GetAtt SageMakerModelRole.Arn
+      PrimaryContainer:
+        Image: !FindInMap [ContainerImageByRegion, !Ref 'AWS::Region', Image]
+        Environment:
+          HF_MODEL_ID: facebook/bart-large-mnli
+          HF_TASK: zero-shot-classification
+          SAGEMAKER_CONTAINER_LOG_LEVEL: 20
+          SAGEMAKER_REGION: !Ref 'AWS::Region'
+  SageMakerEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
+  SageMakerEndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      ProductionVariants:
+        - ModelName: !GetAtt SageMakerModel.ModelName
+          VariantName: !GetAtt SageMakerModel.ModelName
+          InitialInstanceCount: 1
+          InstanceType: ml.m5.large
+          InitialVariantWeight: 1.0
+
+Outputs:
+  AwsRegion:
+    Value: !Ref 'AWS::Region'
+  TweetsQueueUrl:
+    Value: !Ref TweetsQueue
+  TweetsQueueArn:
+    Value: !GetAtt TweetsQueue.Arn
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+  SageMakerEndpointName:
+    Value: !GetAtt SageMakerEndpoint.EndpointName
