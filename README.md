@@ -37,7 +37,7 @@ sam build --use-container && sam deploy --guided
 
 Follow the prompts.
 
-The command above deploys a AWS CloudFormation stack in your AWS account. You will need the stack's output values to deploy
+The command above deploys an AWS CloudFormation stack in your AWS account. You will need the stack's output values to deploy
 the Twitter stream getter container.
 
 ## Twitter stream getter container
