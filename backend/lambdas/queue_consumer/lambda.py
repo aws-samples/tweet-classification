@@ -9,7 +9,7 @@ import boto3
 
 from aws_lambda_powertools.utilities.batch import BatchProcessor, EventType, batch_processor
 
-MIN_SCORE = 0.70
+MIN_SCORE = 0.40
 DEFAULT_LABEL = 'other'
 
 sns_client = boto3.client('sns')
